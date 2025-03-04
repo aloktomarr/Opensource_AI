@@ -151,7 +151,7 @@ function makeDraggable(element) {
   }
 }
 
-async function waitForElement(selector, timeout = 10000) {
+async function waitForElement(selector, timeout = 1000) {
   const startTime = Date.now();
   
   while (Date.now() - startTime < timeout) {
