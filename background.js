@@ -1,4 +1,7 @@
-const DEEPSEEK_API_KEY = 'sk-d1e238a0001c49f7998d15beb638a30d';
+import config from './config.js';
+
+// Remove the hardcoded API key
+const DEEPSEEK_API_KEY = config.DEEPSEEK_API_KEY;
 
 async function analyzeIssue(issueData) {
   try {

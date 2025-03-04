@@ -1,1 +1,12 @@
+# Environment variables
 .env
+.env.local
+.env.*.local
+
+# API Keys and Secrets
+secrets.js
+config.js
+
+# Build files
+dist/
+build/
