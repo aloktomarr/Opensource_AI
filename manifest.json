@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Open Source AI Assistant",
+  "version": "1.0",
+  "description": "AI assistant that helps contribute to open source repositories by suggesting fixes for issues",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://github.com/*",
+    "https://api.openai.com/*"
+  ],
+  "action": {
+    "default_icon": {
+      "16": "images/icon16.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*/*/issues/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+} 
