@@ -17,27 +17,29 @@ const mockSuggestions = {
   ]
 };
 
-function createSuggestionsPopup(suggestions, isError = false) {
+function createSuggestionsPopup(suggestions) {
   const popup = document.createElement('div');
   popup.className = 'ai-suggestions-popup';
-  popup.dataset.state = 'expanded';
+  popup.dataset.state = 'expanded'; // Track popup state
   
-  // Create header
+  // Add header div for title and close button
   const header = document.createElement('div');
   header.className = 'popup-header';
   
   const title = document.createElement('h3');
-  title.textContent = isError ? 'Error' : 'AI Suggestions';
+  title.textContent = 'AI Suggestions';
   
   const buttonContainer = document.createElement('div');
   buttonContainer.className = 'popup-buttons';
 
+  // Add minimize button
   const minimizeButton = document.createElement('button');
   minimizeButton.innerHTML = '−';
   minimizeButton.className = 'minimize-button';
   minimizeButton.title = 'Minimize';
   minimizeButton.onclick = () => togglePopupState(popup);
   
+  // Add close button
   const closeButton = document.createElement('button');
   closeButton.innerHTML = '×';
   closeButton.className = 'close-button';
@@ -46,55 +48,55 @@ function createSuggestionsPopup(suggestions, isError = false) {
   
   buttonContainer.appendChild(minimizeButton);
   buttonContainer.appendChild(closeButton);
+  
   header.appendChild(title);
   header.appendChild(buttonContainer);
   popup.appendChild(header);
 
+  // Create content container
   const content = document.createElement('div');
   content.className = 'popup-content';
 
-  if (isError) {
-    const errorMessage = document.createElement('div');
-    errorMessage.className = 'error-message';
-    errorMessage.textContent = suggestions.join('\n');
-    content.appendChild(errorMessage);
-  } else {
-    suggestions.forEach((suggestion, index) => {
-      if (suggestion.startsWith('📊') || suggestion.startsWith('🛠️') || 
-          suggestion.startsWith('💻') || suggestion.startsWith('🧪')) {
-        const sectionHeader = document.createElement('div');
-        sectionHeader.className = 'section-header';
-        sectionHeader.textContent = suggestion;
-        sectionHeader.style.animationDelay = `${index * 0.1}s`;
-        content.appendChild(sectionHeader);
-      } else if (suggestion.startsWith('•')) {
-        const item = document.createElement('div');
-        item.className = 'suggestion-item';
-        item.style.animationDelay = `${index * 0.1}s`;
-        
-        const bullet = document.createElement('span');
-        bullet.className = 'bullet';
-        bullet.textContent = '•';
-        
-        const text = document.createElement('span');
-        text.className = 'suggestion-text';
-        text.textContent = suggestion.substring(2);
-        
-        item.appendChild(bullet);
-        item.appendChild(text);
-        content.appendChild(item);
-      } else if (suggestion.trim() !== '') {
-        const text = document.createElement('div');
-        text.className = 'suggestion-text';
-        text.textContent = suggestion;
-        text.style.padding = '0 12px';
-        content.appendChild(text);
-      }
-    });
-  }
+  // Create sections for different types of suggestions
+  suggestions.forEach((suggestion, index) => {
+    if (suggestion.startsWith('📊') || suggestion.startsWith('🛠️') || 
+        suggestion.startsWith('💻') || suggestion.startsWith('🧪')) {
+      // Create section header
+      const sectionHeader = document.createElement('div');
+      sectionHeader.className = 'section-header';
+      sectionHeader.textContent = suggestion;
+      content.appendChild(sectionHeader);
+    } else if (suggestion.startsWith('•')) {
+      // Create animated list item
+      const item = document.createElement('div');
+      item.className = 'suggestion-item';
+      item.style.animationDelay = `${index * 0.1}s`;
+      
+      const bullet = document.createElement('span');
+      bullet.className = 'bullet';
+      bullet.textContent = '•';
+      
+      const text = document.createElement('span');
+      text.className = 'suggestion-text';
+      text.textContent = suggestion.substring(2);
+      
+      item.appendChild(bullet);
+      item.appendChild(text);
+      content.appendChild(item);
+    } else if (suggestion.trim() !== '') {
+      // Regular text
+      const text = document.createElement('div');
+      text.className = 'suggestion-text';
+      text.textContent = suggestion;
+      content.appendChild(text);
+    }
+  });
   
   popup.appendChild(content);
+
+  // Make popup draggable
   makeDraggable(popup);
+  
   return popup;
 }
 
@@ -151,7 +153,7 @@ function makeDraggable(element) {
   }
 }
 
-async function waitForElement(selector, timeout = 1000) {
+async function waitForElement(selector, timeout = 10000) {
   const startTime = Date.now();
   
   while (Date.now() - startTime < timeout) {
@@ -179,17 +181,26 @@ async function getRepositoryInfo() {
 }
 
 async function analyzePage() {
+  let loadingPopup = null;  // Declare once at the top
   try {
+    console.log('Starting analysis...');
+    
     // Wait for issue elements to be available
+    console.log('Waiting for title element...');
     const titleElement = await waitForElement('[data-testid="issue-header"]');
+    console.log('Waiting for body element...');
     const bodyElement = await waitForElement('[data-testid="markdown-body"]');
 
     if (!titleElement || !bodyElement) {
       throw new Error('Could not find issue elements. Please make sure you are on a GitHub issue page.');
     }
 
+    console.log('Elements found, extracting content...');
     const title = titleElement.textContent.trim();
     const description = bodyElement.textContent.trim();
+
+    console.log('Title:', title.substring(0, 50) + '...');
+    console.log('Description:', description.substring(0, 50) + '...');
 
     // Remove existing popup if any
     const existingPopup = document.querySelector('.ai-suggestions-popup');
@@ -198,13 +209,16 @@ async function analyzePage() {
     }
 
     // Create and show loading popup
-    const loadingPopup = createLoadingPopup();
+    loadingPopup = createLoadingPopup();  // Use existing variable
     document.body.appendChild(loadingPopup);
 
     // Get repository context
+    console.log('Getting repository info...');
     const repoInfo = await getRepositoryInfo();
+    console.log('Repository info:', repoInfo);
     
-    console.log('Sending analysis request...');
+    // Send data to background script for analysis
+    console.log('Sending message to background script...');
     const response = await chrome.runtime.sendMessage({
       action: 'analyzeIssue',
       data: {
@@ -221,43 +235,33 @@ async function analyzePage() {
     }
 
     // Remove loading popup
-    loadingPopup.remove();
-
-    try {
-      // Try parsing as JSON first
-      const jsonResponse = JSON.parse(response.suggestions);
-      const suggestions = [
-        '📊 Analysis:',
-        jsonResponse.analysis,
-        '',
-        '🛠️ Solution Steps:',
-        ...jsonResponse.solution.map(s => `• ${s}`),
-        '',
-        '💻 Code Changes:',
-        ...jsonResponse.code_changes.map(c => `• ${c}`),
-        '',
-        '🧪 Testing:',
-        ...jsonResponse.testing.map(t => `• ${t}`)
-      ];
-      const popup = createSuggestionsPopup(suggestions);
-      document.body.appendChild(popup);
-    } catch (jsonError) {
-      // If JSON parsing fails, display as plain text
-      console.warn('Failed to parse JSON response:', jsonError);
-      const suggestions = response.suggestions.split('\n').filter(line => line.trim());
-      const popup = createSuggestionsPopup(suggestions);
-      document.body.appendChild(popup);
+    if (loadingPopup) {
+      loadingPopup.remove();
     }
+
+    // Changed: Handle response.suggestions directly
+    if (typeof response.suggestions === 'string') {
+      const suggestions = response.suggestions
+        .split('\n')
+        .filter(line => line.trim().length > 0);
+
+      const popup = createSuggestionsPopup(suggestions);
+      document.body.appendChild(popup);
+    } else {
+      throw new Error('Invalid response format from API');
+    }
+
   } catch (error) {
     console.error('Error in analyzePage:', error);
+    // Show error in popup
+    if (loadingPopup) {
+      loadingPopup.remove();
+    }
     const errorPopup = createSuggestionsPopup([
       'Error analyzing issue.',
       'Please try again later.',
-      `Details: ${error.message}`,
-      '',
-      'Technical details:',
-      error.stack || 'No stack trace available'
-    ], true);
+      `Details: ${error.message}`
+    ]);
     document.body.appendChild(errorPopup);
   }
 }
@@ -280,34 +284,6 @@ function createLoadingPopup() {
   popup.appendChild(loader);
   
   return popup;
-}
-
-function createContributorToolbar() {
-  const toolbar = document.createElement('div');
-  toolbar.className = 'contributor-toolbar';
-  
-  // Quick setup button
-  const setupButton = document.createElement('button');
-  setupButton.textContent = '🔧 Quick Setup';
-  setupButton.onclick = showSetupInstructions;
-  
-  // Test guide button
-  const testButton = document.createElement('button');
-  testButton.textContent = '🧪 Test Guide';
-  testButton.onclick = showTestingGuide;
-  
-  // Similar issues button
-  const similarButton = document.createElement('button');
-  similarButton.textContent = '🔍 Find Similar';
-  similarButton.onclick = showSimilarIssues;
-  
-  // Resource links button
-  const resourcesButton = document.createElement('button');
-  resourcesButton.textContent = '📚 Resources';
-  resourcesButton.onclick = showResourceLinks;
-  
-  toolbar.append(setupButton, testButton, similarButton, resourcesButton);
-  return toolbar;
 }
 
 // Wait for page load and then run analysis

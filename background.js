@@ -1,7 +1,4 @@
-import config from './config.js';
-
-// Remove the hardcoded API key
-const DEEPSEEK_API_KEY = config.DEEPSEEK_API_KEY;
+const DEEPSEEK_API_KEY = 'sk-d1e238a0001c49f7998d15beb638a30d';
 
 async function analyzeIssue(issueData) {
   try {
@@ -35,8 +32,8 @@ async function analyzeIssue(issueData) {
         {
           role: "system",
           content: `You are an expert programmer analyzing GitHub issues. 
-                   Analyze the code issues and provide solutions in a structured JSON format.
-                   Include 'analysis', 'solution', 'code_changes', and 'testing' sections.`
+                   Analyze the code issues and provide solutions in a structured format.
+                   Return your response as a JSON object with specific sections.`
         },
         {
           role: "user",
@@ -48,24 +45,61 @@ async function analyzeIssue(issueData) {
           Issue Title: ${issueData.title}
           
           Issue Description: 
-          ${issueData.description}
-          
-          Return the response in this JSON format:
-          {
-            "analysis": "Brief analysis of the issue",
-            "solution": ["Step 1", "Step 2", ...],
-            "code_changes": ["Change 1", "Change 2", ...],
-            "testing": ["Test 1", "Test 2", ...]
-          }`
+          ${issueData.description}`
         }
       ],
       temperature: 0.3,
       max_tokens: 2000,
-      stream: false
+      stream: false,
+      top_p: 0.95,
+      presence_penalty: 0,
+      frequency_penalty: 0,
+      response_format: {
+        type: "json_object",
+        schema: {
+          type: "object",
+          properties: {
+            analysis: {
+              type: "string",
+              description: "Brief analysis of the issue"
+            },
+            solution: {
+              type: "array",
+              items: {
+                type: "string"
+              },
+              description: "List of specific solution steps"
+            },
+            code_changes: {
+              type: "array",
+              items: {
+                type: "string"
+              },
+              description: "Suggested code modifications"
+            },
+            testing: {
+              type: "array",
+              items: {
+                type: "string"
+              },
+              description: "Testing suggestions"
+            }
+          }
+        }
+      }
     };
 
-    console.log('Making API request...');
-    const response = await fetch('https://api.deepseek.com/chat/completion', {
+    console.log('Issue data received:', {
+      title: issueData.title,
+      description: issueData.description.substring(0, 100) + '...',
+      repo: issueData.repoName,
+      language: issueData.primaryLanguage
+    });
+
+    // Only proceed with API call if we have valid data
+    console.log('Request body:', JSON.stringify(requestBody, null, 2));
+
+    const response = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -74,16 +108,11 @@ async function analyzeIssue(issueData) {
       body: JSON.stringify(requestBody)
     });
 
-    console.log('Response status:', response.status);
     const responseData = await response.json();
     console.log('API Response:', responseData);
 
     if (!response.ok) {
       throw new Error(`API Error: ${responseData.error?.message || JSON.stringify(responseData)}`);
-    }
-
-    if (!responseData.choices?.[0]?.message?.content) {
-      throw new Error('Invalid response format from API');
     }
 
     return { suggestions: responseData.choices[0].message.content };
@@ -124,76 +153,14 @@ async function testApiConnection() {
   }
 }
 
-async function getRepositoryContext(repoOwner, repoName) {
-  try {
-    // Get README content
-    const readmeResponse = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/readme`);
-    const readmeData = await readmeResponse.json();
-    const readme = atob(readmeData.content); // Decode base64
-
-    // Get recent issues
-    const issuesResponse = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/issues?state=all&per_page=5`);
-    const recentIssues = await issuesResponse.json();
-
-    // Get repository info
-    const repoResponse = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}`);
-    const repoInfo = await repoResponse.json();
-
-    return {
-      readme,
-      recentIssues: recentIssues.map(issue => ({
-        title: issue.title,
-        state: issue.state,
-        labels: issue.labels
-      })),
-      repoInfo: {
-        description: repoInfo.description,
-        topics: repoInfo.topics,
-        language: repoInfo.language,
-        hasIssues: repoInfo.has_issues,
-        hasProjects: repoInfo.has_projects,
-        contributingGuidelines: repoInfo.has_contributing
-      }
-    };
-  } catch (error) {
-    console.error('Error fetching repository context:', error);
-    return null;
-  }
-}
-
-async function getContributionGuidelines(repoOwner, repoName) {
-  try {
-    // Common contribution guideline filenames
-    const guidelineFiles = [
-      'CONTRIBUTING.md',
-      '.github/CONTRIBUTING.md',
-      'docs/CONTRIBUTING.md',
-      'CONTRIBUTE.md'
-    ];
-
-    for (const file of guidelineFiles) {
-      try {
-        const response = await fetch(`https://api.github.com/repos/${repoOwner}/${repoName}/contents/${file}`);
-        if (response.ok) {
-          const data = await response.json();
-          return atob(data.content);
-        }
-      } catch (e) {
-        continue;
-      }
-    }
-    return null;
-  } catch (error) {
-    console.error('Error fetching contribution guidelines:', error);
-    return null;
-  }
-}
-
 // Modified message listener
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'analyzeIssue') {
+    console.log('Background script received analyzeIssue request:', request.data);
+    
     analyzeIssue(request.data)
       .then(response => {
+        console.log('Analysis complete, sending response:', response);
         if (!response.error) {
           try {
             // Only try to parse as JSON if it's an API response
@@ -222,14 +189,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
             sendResponse({ suggestions: formattedResponse });
           } catch (error) {
+            console.error('Error parsing response:', error);
             // Fallback to simple formatting if JSON parsing fails
             sendResponse({ suggestions: response.suggestions });
           }
         } else {
+          console.error('Error in response:', response.error);
           sendResponse({ error: response.error });
         }
       })
-      .catch(error => sendResponse({ error: error.message }));
+      .catch(error => {
+        console.error('Error in analyzeIssue:', error);
+        sendResponse({ error: error.message });
+      });
     return true;
   }
 
@@ -239,85 +211,4 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .catch(error => sendResponse({ error: error.message }));
     return true;
   }
-
-  if (request.action === 'testAPI') {
-    testDeepseekAPI()
-      .then(result => sendResponse({ success: true, data: result }))
-      .catch(error => sendResponse({ success: false, error: error.message }));
-    return true;
-  }
-});
-
-// Add this function to test the API connection
-async function testDeepseekAPI() {
-  const testBody = {
-    model: "deepseek-chat",
-    messages: [
-      {
-        role: "user",
-        content: "Return this as JSON: {\"test\": \"success\"}"
-      }
-    ],
-    temperature: 0.3,
-    max_tokens: 100
-  };
-
-  try {
-    const response = await fetch('https://api.deepseek.com/chat/completion', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
-      },
-      body: JSON.stringify(testBody)
-    });
-
-    const data = await response.json();
-    console.log('API Test Response:', data);
-    return data;
-  } catch (error) {
-    console.error('API Test Failed:', error);
-    throw error;
-  }
-}
-
-const enhancedPrompt = `
-Analyze this GitHub issue and provide contribution guidance:
-
-Repository Context:
-- Name: ${repoInfo.name}
-- Description: ${repoInfo.description}
-- Primary Language: ${repoInfo.language}
-- Topics: ${repoInfo.topics.join(', ')}
-
-Contributing Guidelines Summary:
-${contributingGuidelines ? contributingGuidelines.substring(0, 500) + '...' : 'No explicit guidelines found'}
-
-Recent Similar Issues:
-${similarIssues.map(issue => `- ${issue.title} (${issue.state})`).join('\n')}
-
-Current Issue:
-Title: ${issueData.title}
-Description: ${issueData.description}
-
-Please provide:
-1. Issue Analysis
-   - Issue type (bug/feature/docs)
-   - Complexity assessment
-   - Required expertise
-
-2. Contribution Steps
-   - Setup requirements
-   - Development workflow
-   - Testing requirements
-
-3. Related Resources
-   - Similar issues/PRs
-   - Relevant documentation
-   - Helpful community links
-
-4. Best Practices
-   - Code style guidelines
-   - Commit message format
-   - PR submission tips
-`; 
+}); 
