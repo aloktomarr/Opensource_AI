@@ -204,7 +204,7 @@ async function analyzePage() {
     // Get repository context
     const repoInfo = await getRepositoryInfo();
     
-    // Send data to background script for analysis
+    console.log('Sending analysis request...');
     const response = await chrome.runtime.sendMessage({
       action: 'analyzeIssue',
       data: {
@@ -214,26 +214,49 @@ async function analyzePage() {
       }
     });
 
+    console.log('Received response:', response);
+
     if (response.error) {
       throw new Error(response.error);
     }
 
-    // Parse suggestions from AI response
-    const suggestions = response.suggestions
-      .split('\n')
-      .filter(line => line.trim().length > 0);
-
-    // Remove loading popup and show suggestions
+    // Remove loading popup
     loadingPopup.remove();
-    const popup = createSuggestionsPopup(suggestions);
-    document.body.appendChild(popup);
+
+    try {
+      // Try parsing as JSON first
+      const jsonResponse = JSON.parse(response.suggestions);
+      const suggestions = [
+        '📊 Analysis:',
+        jsonResponse.analysis,
+        '',
+        '🛠️ Solution Steps:',
+        ...jsonResponse.solution.map(s => `• ${s}`),
+        '',
+        '💻 Code Changes:',
+        ...jsonResponse.code_changes.map(c => `• ${c}`),
+        '',
+        '🧪 Testing:',
+        ...jsonResponse.testing.map(t => `• ${t}`)
+      ];
+      const popup = createSuggestionsPopup(suggestions);
+      document.body.appendChild(popup);
+    } catch (jsonError) {
+      // If JSON parsing fails, display as plain text
+      console.warn('Failed to parse JSON response:', jsonError);
+      const suggestions = response.suggestions.split('\n').filter(line => line.trim());
+      const popup = createSuggestionsPopup(suggestions);
+      document.body.appendChild(popup);
+    }
   } catch (error) {
     console.error('Error in analyzePage:', error);
-    // Show error in popup
     const errorPopup = createSuggestionsPopup([
       'Error analyzing issue.',
       'Please try again later.',
-      `Details: ${error.message}`
+      `Details: ${error.message}`,
+      '',
+      'Technical details:',
+      error.stack || 'No stack trace available'
     ], true);
     document.body.appendChild(errorPopup);
   }
@@ -257,6 +280,34 @@ function createLoadingPopup() {
   popup.appendChild(loader);
   
   return popup;
+}
+
+function createContributorToolbar() {
+  const toolbar = document.createElement('div');
+  toolbar.className = 'contributor-toolbar';
+  
+  // Quick setup button
+  const setupButton = document.createElement('button');
+  setupButton.textContent = '🔧 Quick Setup';
+  setupButton.onclick = showSetupInstructions;
+  
+  // Test guide button
+  const testButton = document.createElement('button');
+  testButton.textContent = '🧪 Test Guide';
+  testButton.onclick = showTestingGuide;
+  
+  // Similar issues button
+  const similarButton = document.createElement('button');
+  similarButton.textContent = '🔍 Find Similar';
+  similarButton.onclick = showSimilarIssues;
+  
+  // Resource links button
+  const resourcesButton = document.createElement('button');
+  resourcesButton.textContent = '📚 Resources';
+  resourcesButton.onclick = showResourceLinks;
+  
+  toolbar.append(setupButton, testButton, similarButton, resourcesButton);
+  return toolbar;
 }
 
 // Wait for page load and then run analysis
